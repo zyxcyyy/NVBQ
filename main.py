@@ -7,7 +7,7 @@ from config import TELEGRAM_TOKEN
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackQueryHandler, ContextTypes, filters
 from telegram.warnings import PTBUserWarning
-from datetime import datetime
+from dateutil import parser as dateutil_parser
 
 # Задаем состояния разговора
 CHOOSING_METHOD, PHONE, EMAIL, PASSWORD, SMS_CODE = range(5)
@@ -112,7 +112,7 @@ def parse_and_format_data(data):
         # Дата создания
         creation_date = result.get('creationDate')
         if creation_date:
-            creation_date = datetime.fromisoformat(creation_date.replace('Z', '+00:00')).strftime('%d.%m.%Y %H:%M:%S')
+            creation_date = dateutil_parser.isoparse(creation_date).strftime('%d.%m.%Y %H:%M:%S')
 
         # Долговая информация
         debtor_info = result.get('debtorInfo', {})
