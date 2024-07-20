@@ -2,9 +2,11 @@ import requests
 import logging
 import sqlite3
 import re
+from warnings import filterwarnings
 from config import TELEGRAM_TOKEN
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackQueryHandler, ContextTypes, filters, CallbackContext
+from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, CallbackQueryHandler, ContextTypes, filters
+from telegram.warnings import PTBUserWarning
 from datetime import datetime
 
 # Задаем состояния разговора
@@ -18,11 +20,24 @@ LOGIN_URL = "https://nvs.domopult.ru/api/tenants-registration/login"
 PERSONAL_ACCOUNT_URL = "https://nvs.domopult.ru/api/api/personal_account/payments/{personal_account_id}?query=&sort=&page=0&size=15"
 CLIENTS_CONFIGURATION_ITEMS_URL = "https://nvs.domopult.ru/api/api/clients/configuration-items"
 
+ascii_art = """
+        ██████╗ ██╗   ██╗     ██████╗ ██╗   ██╗ ██╗███████╗███████╗██╗     ██╗   ██╗███████╗███████╗    
+        ██╔══██╗╚██╗ ██╔╝    ██╔═══██╗██║   ██║███║╚══███╔╝╚══███╔╝██║     ╚██╗ ██╔╝╚══███╔╝╚══███╔╝    
+        ██████╔╝ ╚████╔╝     ██║   ██║██║   ██║╚██║  ███╔╝   ███╔╝ ██║      ╚████╔╝   ███╔╝   ███╔╝     
+        ██╔══██╗  ╚██╔╝      ██║▄▄ ██║██║   ██║ ██║ ███╔╝   ███╔╝  ██║       ╚██╔╝   ███╔╝   ███╔╝      
+        ██████╔╝   ██║       ╚██████╔╝╚██████╔╝ ██║███████╗███████╗███████╗   ██║   ███████╗███████╗    
+        ╚═════╝    ╚═╝        ╚══▀▀═╝  ╚═════╝  ╚═╝╚══════╝╚══════╝╚══════╝   ╚═╝   ╚══════╝╚══════╝ 
+        NVBQ - Неофициальный бот района "Новые Ватутинки". Версия: 1.0.0 (20 июля 2024г.)
+    """
+print(ascii_art)
+
 # Включаем логирование
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
+
+filterwarnings(action="ignore", message=r".*CallbackQueryHandler", category=PTBUserWarning)
 
 def init_db():
     conn = sqlite3.connect('tokens.db')
