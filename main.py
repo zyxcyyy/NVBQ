@@ -385,15 +385,7 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     auth_token = get_token(user_id)
 
     if not auth_token:
-        if update.message:
-            await update.message.reply_text(
-                "*❌ Ваша авторизация не завершена.*\n└ Пожалуйста, пройдите процесс авторизации.", parse_mode='MARKDOWN'
-            )
-        elif update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(
-                "*❌ Ваша авторизация не завершена.*\n└ Пожалуйста, пройдите процесс авторизации.", parse_mode='MARKDOWN'
-            )
+        await send_account_info(update, context, "*❌ Ваша авторизация не завершена.*\n└ Пожалуйста, пройдите процесс авторизации.", parse_mode='MARKDOWN')
         return
 
     headers = {
@@ -402,7 +394,6 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     }
 
     try:
-        # Запрос для получения данных о клиенте
         response = requests.get(CLIENTS_CONFIGURATION_ITEMS_URL, headers=headers)
 
         if response.status_code == 200:
@@ -413,24 +404,19 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                 if personal_account_id:
                     save_personal_account_id(user_id, personal_account_id)
 
-                    # Теперь используем personal_account_id в URL
                     url = PERSONAL_ACCOUNT_URL.format(personal_account_id=personal_account_id)
-
-                    # Продолжаем с запросом данных о личном счете
                     response = requests.get(url, headers=headers)
 
                     if response.status_code == 200:
                         data = response.json()
-                        context.user_data['account_data'] = data  # Сохраняем данные в контекст
-                        
-                        # Извлекаем необходимую информацию
+                        context.user_data['account_data'] = data
+
                         personal_account = data.get('results', [{}])[0].get('personalAccount', {})
                         balance = personal_account.get('utilitiesBalance','Неизвестно')
                         account_number = personal_account.get('number', 'Неизвестно')
                         address = personal_account.get('configurationItem', {}).get('address', {})
                         house_info = f"{address.get('location', '')}"
 
-                        # Запрос для получения данных о счётчиках
                         configuration_item_id = personal_account.get('configurationItem', {}).get('id')
                         meters_url = f"https://nvs.domopult.ru/api/api/clients/meters/for-item/{configuration_item_id}"
                         meters_response = requests.get(meters_url, headers=headers)
@@ -446,12 +432,10 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         else:
                             meters_info = "Не удалось получить данные о счётчиках."
 
-                        # Формируем сообщение
                         welcome_message = f"<b>👋 Добро пожаловать в личный кабинет, {first_name}!</b>\n\n"
                         account_info_message = f"<b>🧾 Лицевой счёт:</b> {account_number}\n<b>💸 Баланс счёта:</b> {balance} ₽\n<b>🏠 Помещение:</b> {house_info}\n\n"
                         meters_message = f"<b>📊 Показания счётчиков:</b>\n{meters_info}\n"
 
-                        # Создаем инлайн-кнопки
                         keyboard = [
                             [InlineKeyboardButton("💸 Пополнить баланс", callback_data='top_up_balance')],
                             [InlineKeyboardButton("📋 Квитанции", callback_data='download_receipt')],
@@ -460,68 +444,29 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                         ]
                         reply_markup = InlineKeyboardMarkup(keyboard)
 
-                        if update.message:
-                            await update.message.reply_text(welcome_message + account_info_message + meters_message, parse_mode='HTML', reply_markup=reply_markup)
-                        elif update.callback_query:
-                            await update.callback_query.answer()
-                            await update.callback_query.edit_message_text(welcome_message + account_info_message + meters_message, parse_mode='HTML', reply_markup=reply_markup)
+                        await send_account_info(update, context, welcome_message + account_info_message + meters_message, parse_mode='HTML', reply_markup=reply_markup)
                     else:
-                        error_message = f"<b>❌ Ошибка при получении информации о счете.</b>\n├ Статус: {response.status_code}\n└ Сообщение: {response.text}"
-                        if update.message:
-                            await update.message.reply_text(error_message, parse_mode='HTML')
-                        elif update.callback_query:
-                            await update.callback_query.answer()
-                            await update.callback_query.edit_message_text(error_message, parse_mode='HTML')
+                        await send_account_info(update, context, f"<b>❌ Ошибка при получении информации о счете.</b>\n├ Статус: {response.status_code}\n└ Сообщение: {response.text}", parse_mode='HTML')
                 else:
-                    if update.message:
-                        await update.message.reply_text(
-                            "*❌ Не удалось найти идентификатор личного счета.*", parse_mode='MARKDOWN'
-                        )
-                    elif update.callback_query:
-                        await update.callback_query.answer()
-                        await update.callback_query.edit_message_text(
-                            "*❌ Не удалось найти идентификатор личного счета.*", parse_mode='MARKDOWN'
-                        )
+                    await send_account_info(update, context, "*❌ Не удалось найти идентификатор личного счета.*", parse_mode='MARKDOWN')
             else:
-                if update.message:
-                    await update.message.reply_text(
-                        "*❌ Нет данных о клиенте.*", parse_mode='MARKDOWN'
-                    )
-                elif update.callback_query:
-                    await update.callback_query.answer()
-                    await update.callback_query.edit_message_text(
-                        "*❌ Нет данных о клиенте.*", parse_mode='MARKDOWN'
-                    )
+                await send_account_info(update, context, "*❌ Нет данных о клиенте.*", parse_mode='MARKDOWN')
         elif response.status_code == 401:
-            if update.message:
-                await update.message.reply_text(
-                    "*❌ Токен истёк.*\n└ Пожалуйста, пройдите процесс авторизации заново.", parse_mode='MARKDOWN'
-                )
-                delete_token(user_id)
-            elif update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(
-                    "*❌ Токен истёк.*\n└ Пожалуйста, пройдите процесс авторизации заново.", parse_mode='MARKDOWN'
-                )
-                delete_token(user_id)
+            await send_account_info(update, context, "*❌ Токен истёк.*\n└ Пожалуйста, пройдите процесс авторизации заново.", parse_mode='MARKDOWN')
+            delete_token(user_id)
         else:
-            error_message = f"<b>❌ Ошибка при получении информации о клиенте.</b>\n├ Статус: {response.status_code}\n└ Сообщение: {response.text}"
-            if update.message:
-                await update.message.reply_text(error_message, parse_mode='HTML')
-            elif update.callback_query:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(error_message, parse_mode='HTML')
+            await send_account_info(update, context, f"<b>❌ Ошибка при получении информации о клиенте.</b>\n├ Статус: {response.status_code}\n└ Сообщение: {response.text}", parse_mode='HTML')
     except requests.exceptions.RequestException as e:
         logger.warning(f"Ошибка при получении информации о счёте: {e}")
-        if update.message:
-            await update.message.reply_text(
-                "<b>❌ Произошла ошибка при обработке запроса.</b>\n└ Пожалуйста, попробуйте снова.", parse_mode='HTML'
-            )
-        elif update.callback_query:
-            await update.callback_query.answer()
-            await update.callback_query.edit_message_text(
-                "<b>❌ Произошла ошибка при обработке запроса.</b>\n└ Пожалуйста, попробуйте снова.", parse_mode='HTML'
-            )
+        await send_account_info(update, context, "<b>❌ Произошла ошибка при обработке запроса.</b>\n└ Пожалуйста, попробуйте снова.", parse_mode='HTML')
+
+async def send_account_info(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, parse_mode: str = None, reply_markup=None) -> None:
+    if update.message:
+        message = await update.message.reply_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.answer()
+        message = await update.callback_query.edit_message_text(text, parse_mode=parse_mode, reply_markup=reply_markup)
+    context.user_data['last_bot_message_id'] = message.message_id
 
 async def top_up_balance(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -563,32 +508,38 @@ async def ask_for_year(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     query = update.callback_query
     await query.answer()
     if update.message:
-        await update.message.reply_text("*✨ Квитанции*\n└ Пожалуйста, введите год для получения квитанции:", parse_mode='MARKDOWN')
+        message = await update.message.reply_text("*✨ Квитанции*\n└ Пожалуйста, введите год для получения квитанции:", parse_mode='MARKDOWN')
     elif update.callback_query:
-        await update.callback_query.message.reply_text("*✨ Квитанции*\n└ Пожалуйста, введите год для получения квитанции:", parse_mode='MARKDOWN')
+        message = await update.callback_query.message.reply_text("*✨ Квитанции*\n└ Пожалуйста, введите год для получения квитанции:", parse_mode='MARKDOWN')
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=context.user_data['last_bot_message_id'])
+    context.user_data['last_bot_message_id'] = message.message_id
     return SELECT_YEAR
 
 async def handle_year_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     selected_year = update.message.text
     if not selected_year.isdigit() or len(selected_year) != 4:
-        await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите корректный год (например, 2023):", parse_mode='MARKDOWN')
+        message = await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите корректный год (например, 2023):", parse_mode='MARKDOWN')
+        context.user_data['last_bot_message_id'] = message.message_id
         return SELECT_YEAR
     context.user_data['selected_year'] = selected_year
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=context.user_data['last_bot_message_id'])
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
     return await ask_for_month(update, context)
 
 async def ask_for_month(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if update.message:
-        await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите месяц для получения квитанции (например, 01 для января):", parse_mode='MARKDOWN')
-    elif update.callback_query:
-        await update.callback_query.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите месяц для получения квитанции (например, 01 для января):", parse_mode='MARKDOWN')
+    message = await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите месяц для получения квитанции (например, 01 для января):", parse_mode='MARKDOWN')
+    context.user_data['last_bot_message_id'] = message.message_id
     return SELECT_MONTH
 
 async def handle_month_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     selected_month = update.message.text
     if not selected_month.isdigit() or len(selected_month) != 2 or not 1 <= int(selected_month) <= 12:
-        await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите корректный месяц (например, 01 для января):", parse_mode='MARKDOWN')
+        message = await update.message.reply_text("*✨ Квитанции\n*└ Пожалуйста, введите корректный месяц (например, 01 для января):", parse_mode='MARKDOWN')
+        context.user_data['last_bot_message_id'] = message.message_id
         return SELECT_MONTH
     context.user_data['selected_month'] = selected_month
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=context.user_data['last_bot_message_id'])
+    await context.bot.delete_message(chat_id=update.effective_chat.id, message_id=update.message.message_id)
     return await send_receipt(update, context)
 
 async def send_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -619,6 +570,7 @@ async def send_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     except requests.exceptions.RequestException as e:
         await update.message.reply_text("<b>❌ Произошла ошибка при обработке запроса.</b>\n└ Пожалуйста, попробуйте снова.", parse_mode='HTML')
 
+    await account_info(update,context)
     return ConversationHandler.END
 
 async def show_counters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
