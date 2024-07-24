@@ -12,7 +12,7 @@ from dateutil import parser as dateutil_parser
 # Задаем состояния разговора
 CHOOSING_METHOD, PHONE, EMAIL, PASSWORD, SMS_CODE = range(5)
 SELECT_YEAR, SELECT_MONTH, SEND_RECEIPT = range(3)
-SELECT_METER, INPUT_READING = range(2)
+SELECT_METER, INPUT_READING, INPUT_READINGS = range(3)
 
 # URL для получения кода и авторизации
 SMS_CODE_URL = "https://nvs.domopult.ru/api/tenants-registration/code"
@@ -433,7 +433,7 @@ async def account_info(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                             meters_info = "Не удалось получить данные о счётчиках."
 
                         welcome_message = f"<b>👋 Добро пожаловать в личный кабинет, {first_name}!</b>\n\n"
-                        account_info_message = f"<b>🧾 Лицевой счёт:</b> {account_number}\n<b>💸 Баланс счёта:</b> {balance} ₽\n<b>🏠 Помещение:</b> {house_info}\n\n"
+                        account_info_message = f"<b>🧾 Лицевой счёт:</b> <code>{account_number}\n</code><b>💸 Баланс счёта:</b> {balance} ₽\n<b>🏠 Помещение:</b> {house_info}\n\n"
                         meters_message = f"<b>📊 Показания счётчиков:</b>\n{meters_info}\n"
 
                         keyboard = [
@@ -563,7 +563,9 @@ async def send_receipt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
             receipt_file = response.content
             await context.bot.send_document(chat_id=update.effective_chat.id, document=receipt_file, filename=f"{selected_year}-{selected_month}-01.pdf")
         elif response.status_code == 400:
-            await update.message.reply_text("*❌ Квитанции\n*└ Квитанция для выбранного периода недоступна, попробуйте позже.", parse_mode='MARKDOWN')
+            keyboard = [[InlineKeyboardButton("🔙 Назад", callback_data='start')],]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text("*❌ Квитанции\n*└ Квитанция для выбранного периода недоступна, попробуйте позже.", parse_mode='MARKDOWN',reply_markup=reply_markup)
             return ConversationHandler.END
         else:
             await update.message.reply_text(f"<b>❌ Ошибка при получении квитанций.</b>\n├ Статус: {response.status_code}\n└ Сообщение: {response.text}", parse_mode='HTML')
@@ -616,7 +618,7 @@ async def show_counters(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
         keyboard = []
         for meter in meters_data:
             meter_type = meter.get('meter', {}).get('type', 'Неизвестный тип')
-            if meter_type in ['ColdWater', 'HotWater']:
+            if meter_type in ['ColdWater', 'HotWater', 'Electricity']:
                 meter_number = meter.get('meter', {}).get('number', 'Неизвестный номер')
                 last_value = meter.get('meter', {}).get('lastValue', {}).get('total', {}).get('displayValue', 'Нет данных')
                 meters_info += f"<b>{meter_type}:</b> {meter_number} - Последнее, общее показание: {last_value}\n"
@@ -637,17 +639,42 @@ async def select_meter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     meter_id = query.data.split('_')[1]
     context.user_data['selected_meter_id'] = meter_id
 
-    await query.edit_message_text("*📊 Счётчики.*\n└ Пожалуйста, введите показания счётчика:")
-    return INPUT_READING
+    # Получаем информацию о счётчике
+    user_id = update.effective_user.id
+    auth_token = get_token(user_id)
+    headers = {
+        'X-Auth-Tenant-Token': f'{auth_token}',
+        'Content-Type': 'application/json'
+    }
+
+    meters_url = f"https://nvs.domopult.ru/api/api/clients/meters/{meter_id}"
+    meters_response = requests.get(meters_url, headers=headers)
+
+    if meters_response.status_code == 200:
+        meter_data = meters_response.json()
+        meter_type = meter_data.get('meter', {}).get('type', 'Неизвестный тип')
+
+        if meter_type == 'Electricity':
+            await query.edit_message_text("*📊 Счётчики.*\n└ Пожалуйста, введите показания счётчика (T1, T2, T3):", parse_mode='MARKDOWN')
+            return INPUT_READINGS
+        elif meter_type in ['ColdWater', 'HotWater']:
+            await query.edit_message_text("*📊 Счётчики.*\n└ Пожалуйста, введите показания счётчика:", parse_mode='MARKDOWN')
+            return INPUT_READING
+        else:
+            await query.edit_message_text("*❌ Неизвестный тип счётчика.*", parse_mode='MARKDOWN')
+            return ConversationHandler.END
+    else:
+        await query.edit_message_text("*❌ Не удалось получить данные о счётчике.*", parse_mode='MARKDOWN')
+        return ConversationHandler.END
 
 async def input_reading(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_input = update.message.text
     meter_id = context.user_data.get('selected_meter_id')
-    reading = update.message.text
+    reading = user_input.strip()
 
     if '.' not in reading:
-        await update.message.reply_text("*❌ Счётчики.*\n└ Показания должны содержать точку. Пожалуйста, введите показания снова.")
-        return SELECT_METER
+        await update.message.reply_text("*❌ Счётчики.*\n└ Показания должны содержать точку. Пожалуйста, введите показания снова.", parse_mode='MARKDOWN')
+        return INPUT_READING
 
     user_id = update.effective_user.id
     auth_token = get_token(user_id)
@@ -658,13 +685,50 @@ async def input_reading(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     }
 
     payload = {
-        "value1": user_input
+        "value1": reading
     }
 
     response = requests.post(f"https://nvs.domopult.ru/api/api/clients/meters/{meter_id}/values?withOptionalCheck=true", headers=headers, json=payload)
 
     if response.status_code == 200:
-        await update.message.reply_text("*✅ Счётчики.*\n└ Показания успешно внесены.")
+        await update.message.reply_text("*✅ Счётчики.*\n└ Показания успешно внесены.", parse_mode='MARKDOWN')
+    else:
+        await update.message.reply_text("*❌ Счётчики.*\n└ Не удалось внести показания.", parse_mode='MARKDOWN')
+
+    return ConversationHandler.END
+
+async def input_readings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user_input = update.message.text
+    meter_id = context.user_data.get('selected_meter_id')
+    readings = user_input.split(',')
+
+    if len(readings) != 3:
+        await update.message.reply_text("*❌ Счётчики.*\n└ Пожалуйста, введите три показания, разделенные запятой (T1, T2, T3).", parse_mode='MARKDOWN')
+        return INPUT_READINGS
+
+    for reading in readings:
+        if '.' not in reading:
+            await update.message.reply_text("*❌ Счётчики.*\n└ Показания должны содержать точку. Пожалуйста, введите показания снова.", parse_mode='MARKDOWN')
+            return INPUT_READINGS
+
+    user_id = update.effective_user.id
+    auth_token = get_token(user_id)
+
+    headers = {
+        'X-Auth-Tenant-Token': f'{auth_token}',
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        "value1": readings[0].strip(),
+        "value2": readings[1].strip(),
+        "value3": readings[2].strip()
+    }
+
+    response = requests.post(f"https://nvs.domopult.ru/api/api/clients/meters/{meter_id}/values?withOptionalCheck=true", headers=headers, json=payload)
+
+    if response.status_code == 200:
+        await update.message.reply_text("*✅ Счётчики.*\n└ Показания успешно внесены.", parse_mode='MARKDOWN')
     else:
         await update.message.reply_text("*❌ Счётчики.*\n└ Не удалось внести показания.", parse_mode='MARKDOWN')
 
@@ -700,6 +764,7 @@ def main() -> None:
         states={
             SELECT_METER: [CallbackQueryHandler(select_meter, pattern='^meter_')],
             INPUT_READING: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_reading)],
+            INPUT_READINGS: [MessageHandler(filters.TEXT & ~filters.COMMAND, input_readings)],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
